@@ -14,27 +14,11 @@
 
 ## 需要的库
 
-普通依赖：
-
 ```bash
 pip install customtkinter Pillow numpy requests urllib3
 ```
 
-- `customtkinter`：图形界面
-- `Pillow`：图片读取、缩放、保存
-- `numpy`：图像数组处理
-- `requests`：下载版本列表和客户端 jar
-- `urllib3`：关闭 SSL 警告
-
-`tkinter` 是 Python 标准库，Windows 官方安装包默认自带。
-
-PyTorch 需要 **CUDA 版本**：
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-```
-
-CUDA 版本按你的显卡环境选择，参考 https://pytorch.org/get-started/locally/
+PyTorch 需要安装 **CUDA 版本**，请根据自己的显卡和 CUDA 环境去 PyTorch 官网查找对应的安装命令。
 
 可选：选择「7z极速压缩」时需要安装 7-Zip。
 
@@ -53,4 +37,5 @@ python 镜面马赛克材质多批生成器.pyw
 
 ## 致谢
 
-代码编写过程中使用了 DeepSeek 辅助。
+本项目的代码完全由 DeepSeek 生成，作者仅提供思路与需求。
+本 README 同样由 AI 生成。
