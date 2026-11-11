@@ -124,7 +124,7 @@ def build_pack_mcmeta(description, pack_format):
 class MirrorMosaicApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("MC 镜面马赛克材质生成器 (赛博半金属版)")
+        self.title("MC 镜面马赛克材质生成器 (纯净版)")
         
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
@@ -148,6 +148,7 @@ class MirrorMosaicApp(ctk.CTk):
         self.update_preview_timer = None
         self.active_temp_dir = None
         self.progress_prefix = ""
+        self.preview_fonts = []
         
         self.setup_ui()
         self.fetch_versions_thread()
@@ -194,10 +195,9 @@ class MirrorMosaicApp(ctk.CTk):
             "▶ 核心特性与底层优化：\n"
             "1. 赛博半金属：超高金属反射率搭配极低粗糙度，阳光扫过极度耀眼。\n"
             "2. 斜面POM：无任何黑线遮盖，纯粹依靠法线高度差呈现物理凹陷。\n"
-            "3. 完美透光：精准拦截纯动画(.mcmeta)，玻璃树叶完美支持。\n"
-            "4. Iris变体：自动生成 properties 配置文件，光影下完美随机变体。"
+            "3. 完美透光：精准拦截纯动画(.mcmeta)，玻璃树叶完美支持。"
         )
-        info_box = ctk.CTkTextbox(desc_frame, height=100, font=("Microsoft YaHei", 13), wrap="word")
+        info_box = ctk.CTkTextbox(desc_frame, height=90, font=("Microsoft YaHei", 13), wrap="word")
         info_box.pack(fill="x", padx=10, pady=10)
         info_box.insert("1.0", info_text)
         info_box.configure(state="disabled")
@@ -270,11 +270,6 @@ class MirrorMosaicApp(ctk.CTk):
         ctk.CTkLabel(merge_frame, text=" | 碎片数:").pack(side="left", padx=5)
         self.variant_var = tk.StringVar(value="80")
         ctk.CTkEntry(merge_frame, textvariable=self.variant_var, width=40, height=28).pack(side="left")
-        
-        ctk.CTkLabel(merge_frame, text=" | 变体数:").pack(side="left", padx=5)
-        self.v_count_var = tk.StringVar(value="4")
-        ctk.CTkEntry(merge_frame, textvariable=self.v_count_var, width=40, height=28).pack(side="left")
-        ctk.CTkLabel(merge_frame, text="(物品固定1)", text_color="gray", font=("Microsoft YaHei", 11)).pack(side="left", padx=5)
 
         preview_frame = ctk.CTkFrame(info_frame)
         preview_frame.pack(fill="x", padx=10, pady=(5,10))
@@ -452,6 +447,11 @@ class MirrorMosaicApp(ctk.CTk):
         txt.configure(state="normal")
         txt.delete("1.0", tk.END)
         
+        for f in self.preview_fonts:
+            try: f.destroy()
+            except: pass
+        self.preview_fonts.clear()
+        
         merge_method = self.merge_var.get()
         valid_parts = 0
         
@@ -474,6 +474,7 @@ class MirrorMosaicApp(ctk.CTk):
             
             tag_name = f"tag_{valid_parts}"
             font_obj = tkfont.Font(family=font_family, size=size, weight=weight, slant=slant, underline=underline)
+            self.preview_fonts.append(font_obj)
             
             txt.tag_configure(tag_name, foreground=fg_color, font=font_obj)
             txt.insert(tk.END, text, tag_name)
@@ -586,11 +587,9 @@ class MirrorMosaicApp(ctk.CTk):
         
         seam_mask = F.max_pool2d(edge_mask.float().unsqueeze(1), kernel_size=3, stride=1, padding=1).squeeze(1) > 0.5
         
-        # === 1. 颜色图 ===
         color_out = rgb.to(torch.uint8)
         color_rgba = torch.cat([color_out, alpha.to(torch.uint8)], dim=1)
         
-        # === 2. 高光图（块级随机，提升无损压缩率） ===
         spec = torch.zeros((B, 4, res, res), device=device)
         
         metal_table = 200 + torch.rand(B, num_points * 9, device=device) * 20
@@ -605,7 +604,6 @@ class MirrorMosaicApp(ctk.CTk):
         spec[:, 1] = torch.where(seam_mask, torch.tensor(255.0, device=device, dtype=spec.dtype), spec[:, 1])
         spec[:, 3, :, :] = alpha.squeeze(1)
         
-        # === 3. 法线图与 POM 高度 ===
         angle_x_table = (torch.rand(B, num_points * 9, device=device) * 0.35 - 0.175).unsqueeze(2).unsqueeze(3) 
         angle_y_table = (torch.rand(B, num_points * 9, device=device) * 0.35 - 0.175).unsqueeze(2).unsqueeze(3)
         
@@ -723,7 +721,7 @@ class MirrorMosaicApp(ctk.CTk):
         return jar_path, pack_format
 
     def process_one_pack(self, jar_path, pack_format, res, display_name, final_zip_path,
-                         final_desc_json, mosaic_points, variant_count, compress_mode, path_7z, work_dir):
+                         final_desc_json, mosaic_points, compress_mode, path_7z, work_dir):
         use_folder = (compress_mode == "7z极速压缩")
         pack_dir = work_dir / "pack"
 
@@ -756,22 +754,6 @@ class MirrorMosaicApp(ctk.CTk):
                 elif "/textures/entity/trident" in name.lower():
                     other_files.append((name, has_mcmeta, mc_bytes))
 
-        total_tasks = len(other_files)
-        for _, has_mc, _ in block_files:
-            if has_mc:
-                total_tasks += 1
-            else:
-                total_tasks += variant_count
-
-        print(f"[DEBUG] 扫描完成！总需处理 {total_tasks} 张贴图。")
-        if not block_files and not other_files:
-            raise RuntimeError("未找到任何贴图！可能是版本不匹配或文件损坏。")
-
-        processed_count = [0] 
-
-        read_queue = queue.Queue(maxsize=2000) 
-        write_queue = queue.Queue(maxsize=2000)  
-        
         def is_true_animation(mc_bytes):
             if not mc_bytes: return False
             try:
@@ -780,7 +762,17 @@ class MirrorMosaicApp(ctk.CTk):
             except Exception:
                 return False
 
-        def convert_task(img_name, img_bytes, is_block, has_mcmeta, mc_bytes):
+        total_tasks = len(block_files) + len(other_files)
+        print(f"[DEBUG] 扫描完成！总需处理 {total_tasks} 张贴图。")
+        if not block_files and not other_files:
+            raise RuntimeError("未找到任何贴图！可能是版本不匹配或文件损坏。")
+
+        processed_count = [0] 
+
+        read_queue = queue.Queue(maxsize=2000) 
+        write_queue = queue.Queue(maxsize=2000)  
+
+        def convert_task(img_name, img_bytes, has_mcmeta, mc_bytes):
             try:
                 if has_mcmeta and is_true_animation(mc_bytes):
                     if use_folder:
@@ -797,14 +789,10 @@ class MirrorMosaicApp(ctk.CTk):
                     new_img.paste(src, ((max_dim - w) // 2, (max_dim - h) // 2))
                     src = new_img
 
-                v_limit = variant_count if is_block else 1
                 base_img = src.resize((res, res), Image.NEAREST)
                 base_arr = np.array(base_img)
                 
-                for v in range(v_limit):
-                    var_name = img_name if v == 0 else img_name.replace(".png", f"_{v}.png")
-                    v_mc_bytes = mc_bytes if v == 0 else None
-                    read_queue.put(("ARRAY", var_name, base_arr, v_mc_bytes))
+                read_queue.put(("ARRAY", img_name, base_arr, mc_bytes))
             except Exception as e:
                 print(f"[ERROR] 处理 {img_name} 失败: {e}")
 
@@ -815,10 +803,10 @@ class MirrorMosaicApp(ctk.CTk):
                         futures = []
                         for img_name, has_mc, mc_bytes in block_files:
                             with z_read.open(img_name) as f: img_bytes = f.read()
-                            futures.append(executor.submit(convert_task, img_name, img_bytes, True, has_mc, mc_bytes))
+                            futures.append(executor.submit(convert_task, img_name, img_bytes, has_mc, mc_bytes))
                         for img_name, has_mc, mc_bytes in other_files:
                             with z_read.open(img_name) as f: img_bytes = f.read()
-                            futures.append(executor.submit(convert_task, img_name, img_bytes, False, has_mc, mc_bytes))
+                            futures.append(executor.submit(convert_task, img_name, img_bytes, has_mc, mc_bytes))
                         
                         for future in concurrent.futures.as_completed(futures):
                             pass
@@ -950,7 +938,7 @@ class MirrorMosaicApp(ctk.CTk):
         for _ in range(16): write_queue.put(None)
         for w in writers: w.join()
 
-        print("[DEBUG] 贴图转换完毕，正在写入配置文件和变体配置...")
+        print("[DEBUG] 贴图转换完毕，正在写入配置文件...")
         self.update_ui("正在写入配置文件...", 1.0)
         pack_mcmeta = build_pack_mcmeta(final_desc_json, pack_format)
         
@@ -972,24 +960,6 @@ class MirrorMosaicApp(ctk.CTk):
                     icon_bio = io.BytesIO(); icon_img.save(icon_bio, format="PNG")
                     out_zip.writestr("pack.png", icon_bio.getvalue())
                 except: pass
-
-        if variant_count > 1:
-            print("[DEBUG] 正在生成 Iris/OptiFine 变体配置文件...")
-            tex_indices = " ".join([str(i) for i in range(variant_count)])
-            props_content = f"textures={tex_indices}\n"
-            
-            for img_name, has_mc, mc_bytes in block_files:
-                if has_mc and is_true_animation(mc_bytes): continue
-                
-                rel_path = img_name.replace("textures/", "optifine/random/").replace(".png", ".properties")
-                if use_folder:
-                    prop_path = pack_dir / rel_path
-                    prop_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(prop_path, 'w', encoding='utf-8') as f:
-                        f.write(props_content)
-                else:
-                    with zip_lock:
-                        out_zip.writestr(rel_path, props_content)
 
         if not use_folder:
             out_zip.close()
@@ -1026,7 +996,7 @@ class MirrorMosaicApp(ctk.CTk):
         self.update_ui("生成成功！", 1.0)
 
     def generate_all(self, selected_versions, selected_res, pack_name, final_desc_json, out_dir,
-                     mosaic_points, variant_count, compress_mode, path_7z, total_packs,
+                     mosaic_points, compress_mode, path_7z, total_packs,
                      single_zip_path, multi_root):
         temp_dir = Path(tempfile.mkdtemp(prefix="mc_mosaic_"))
         self.active_temp_dir = temp_dir
@@ -1065,7 +1035,7 @@ class MirrorMosaicApp(ctk.CTk):
                         self.update_ui(f"开始处理 {display_name}", 0, reset=True)
                         self.process_one_pack(
                             jar_path, pack_format, res, display_name, final_zip_path,
-                            final_desc_json, mosaic_points, variant_count, compress_mode, path_7z, work_dir
+                            final_desc_json, mosaic_points, compress_mode, path_7z, work_dir
                         )
                         success_packs += 1
                         print(f"[DEBUG] 完成: {final_zip_path}")
@@ -1139,8 +1109,6 @@ class MirrorMosaicApp(ctk.CTk):
 
         try: mosaic_points = max(1, int(self.variant_var.get().strip()))
         except: mosaic_points = 80
-        try: variant_count = max(1, int(self.v_count_var.get().strip()))
-        except: variant_count = 4
 
         compress_mode = self.compress_var.get()
         path_7z = self.path7z_var.get()
@@ -1165,7 +1133,7 @@ class MirrorMosaicApp(ctk.CTk):
         self.btn_start.configure(state="disabled", text="正在生成...")
         threading.Thread(target=self.generate_all, args=(
             selected_versions, selected_res, pack_name, final_desc_json, out_dir,
-            mosaic_points, variant_count, compress_mode, path_7z, total, single_zip_path, multi_root
+            mosaic_points, compress_mode, path_7z, total, single_zip_path, multi_root
         ), daemon=True).start()
 
 
